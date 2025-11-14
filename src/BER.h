@@ -7,25 +7,31 @@
 #ifdef __has_include
 #if __has_include("SNMPcfg.h")
 #include "SNMPcfg.h"
-#else
+#endif
+#endif
+
 /**
  * @def SNMP_STREAM
  * @brief Defines read and write operations.
  */
+#ifndef SNMP_STREAM
 #define SNMP_STREAM 1
+#endif
 
 /**
  * @def SNMP_VECTOR
  * @brief Defines storage for ArrayBER.
  */
+#ifndef SNMP_VECTOR
 #define SNMP_VECTOR 0
+#endif
 
 /**
  * @def SNMP_CAPACITY
  * @brief Defines capacity of SequenceBER.
  */
+#ifndef SNMP_CAPACITY
 #define SNMP_CAPACITY 6
-#endif
 #endif
 
 #if SNMP_STREAM
@@ -906,7 +912,16 @@ public:
     uint8_t* encodeNumeric(T value, uint8_t *buffer) {
         uint8_t *pointer = BER::encode(buffer);
         for (uint8_t index = 0; index < _length; ++index) {
+#if ARDUINO_ARCH_ESP32
+            uint8_t shift = _length - index - 1;
+            if (shift == sizeof(T)) {
+                *pointer++ = 0;
+            } else {
+                *pointer++ = value >> (shift << 3);
+            }
+#else
             *pointer++ = value >> ((_length - index - 1) << 3);
+#endif
         }
         return pointer;
     }
@@ -1482,6 +1497,7 @@ public:
  *
  * | Object Identifier            | Encoding                                     |
  * |:-----------------------------|:---------------------------------------------|
+ * | 1                            | 06 01 01                                     |
  * | 1.3.6.1.2.1.2.2.1.8.4096     | 06 0B 2B 06 01 02 01 02 02 01 08 A0 00       |
  * | 1.3.6.1.4.1.54858.81.1.1.1.0 | 06 0D 2B 06 01 04 01 83 AC 4A 51 01 01 01 00 |
  */
@@ -1517,12 +1533,18 @@ public:
         BER::encode(stream);
         char *token = const_cast<char*>(_value.c_str());
         while (token != NULL) {
+            char *next = strchr(token + 1, '.');
             switch (index) {
             case 0:
                 subidentifier = atoi(token);
-                break;
+                if (next) {
+                    break;
+                }
+                // No break
             case 1:
-                subidentifier = subidentifier * 40 + atoi(++token);
+                if (index) {
+                    subidentifier = subidentifier * 40 + atoi(++token);
+                }
                 stream.write(subidentifier);
                 _size++;
                 break;
@@ -1540,7 +1562,7 @@ public:
             }
                 break;
             }
-            token = strchr(token, '.');
+            token = next;
             index++;
         }
     }
@@ -1594,12 +1616,18 @@ public:
         uint8_t *pointer = BER::encode(buffer);
         char *token = const_cast<char*>(_value.c_str());
         while (token != NULL) {
+            char *next = strchr(token + 1, '.');
             switch (index) {
             case 0:
                 subidentifier = atoi(token);
-                break;
+                if (next) {
+                    break;
+                }
+                // No break
             case 1:
+                if (index) {
                 subidentifier = subidentifier * 40 + atoi(++token);
+                }
                 *pointer = subidentifier;
                 break;
                 ;
@@ -1616,7 +1644,7 @@ public:
             }
                 break;
             }
-            token = strchr(token, '.');
+            token = next;
             index++;
         }
         return ++pointer;
@@ -1679,10 +1707,10 @@ public:
             switch (index) {
             case 0:
                 subidentifier = atoi(token);
+                _length++;
                 break;
             case 1:
                 subidentifier = subidentifier * 40 + atoi(++token);
-                _length++;
                 break;
             default: {
                 subidentifier = atol(++token);
