@@ -375,8 +375,11 @@ public:
      *
      * @param stream Stream to read from.
      */
-    void decode(Stream &stream) {
+    bool decode(Stream &stream) {
         _size = 1;
+        if(stream.available() == 0){
+            return false;
+        }
         _type = stream.read();
         _class = _type & 0xC0;
         _form = _type & 0x20;
@@ -386,11 +389,15 @@ public:
             do {
                 _size++;
                 _type <<= 8;
+                if(stream.available() == 0){
+                    return false;
+                }
                 _type |= stream.read();
                 _tag <<= 7;
                 _tag |= _type & 0x7F;
             } while (_type & 0x80);
         }
+        return true;
     }
 #else
     /**
@@ -593,17 +600,24 @@ public:
      *
      * @param stream Stream to read from.
      */
-    void decode(Stream &stream) {
+    bool decode(Stream &stream) {
+        if(stream.available() == 0){
+            return false;
+        }
         _length = stream.read();
         if (_length & 0x80) {
             _size = _length & 0x7F;
             _length = 0;
             for (uint8_t index = 0; index < _size; ++index) {
                 _length <<= 8;
+                if(stream.available() == 0){
+                    return false;
+                }
                 _length += stream.read();
             }
             _size++;
         }
+        return true;
     }
 #else
     /**
@@ -853,11 +867,13 @@ public:
      * @param stream Stream to read from.
      * @param flag Decoding flag.
      */
-    virtual void decode(Stream &stream, const uint8_t flag = Flag::None) {
+    virtual bool decode(Stream &stream, const uint8_t flag = Flag::None) {
         if ((flag & Flag::Typed) == Flag::None) {
-            _type.decode(stream);
+            if(!_type.decode(stream)){
+                return false;
+            }
         }
-        _length.decode(stream);
+        return _length.decode(stream);
     }
 
     /**
@@ -871,8 +887,13 @@ public:
      * @param flag Decoding flag.
      */
     template<typename T>
-    void decodeNumeric(T *value, Stream &stream, const uint8_t flag = Flag::None) {
-        BER::decode(stream, flag);
+    bool decodeNumeric(T *value, Stream &stream, const uint8_t flag = Flag::None) {
+        if(!BER::decode(stream, flag)){
+            return false;
+        }
+        if(stream.available() == 0){
+            return false;
+        }
         if (T() - 1 < 0) {
             *value = stream.peek() & 0x80 ? 0xFFFFFFFF : 0;
         } else {
@@ -880,8 +901,12 @@ public:
         }
         for (uint8_t index = 0; index < _length; ++index) {
             *value <<= 8;
+            if(stream.available() == 0){
+                return false;
+            }
             *value |= static_cast<uint8_t>(stream.read());
         }
+        return true;
     }
 #else
     /**
@@ -1105,9 +1130,15 @@ public:
      * @param stream Stream to read from.
      * @param flag Decoding flag.
      */
-    virtual void decode(Stream &stream, const uint8_t flag = Flag::None) {
-        BER::decode(stream, flag);
+    virtual bool decode(Stream &stream, const uint8_t flag = Flag::None) {
+        if(!BER::decode(stream, flag)){
+            return false;
+        }
+        if(stream.available() == 0){
+            return false;
+        }
         _value = stream.read();
+        return true;
     }
 #else
     /**
@@ -1225,8 +1256,8 @@ public:
      * @param stream Stream to read from.
      * @param flag Decoding flag.
      */
-    virtual void decode(Stream &stream, const uint8_t flag = Flag::None) {
-        BER::decodeNumeric<int32_t>(&_value, stream, flag);
+    virtual bool decode(Stream &stream, const uint8_t flag = Flag::None) {
+        return BER::decodeNumeric<int32_t>(&_value, stream, flag);
     }
 
 #else
@@ -1362,10 +1393,12 @@ public:
      * @param stream Stream to read from.
      * @param flag Decoding flag.
      */
-    virtual void decode(Stream &stream, const uint8_t flag = Flag::None) {
-        BER::decode(stream, flag);
+    virtual bool decode(Stream &stream, const uint8_t flag = Flag::None) {
+        if(!BER::decode(stream, flag)){
+            return false;
+        }
         allocate();
-        stream.readBytes(_value, _length);
+        return stream.readBytes(_value, _length) == _length;
     }
 #else
     /**
@@ -1576,10 +1609,12 @@ public:
      * @param stream Stream to read from.
      * @param flag Decoding flag.
      */
-    virtual void decode(Stream &stream, const uint8_t flag = Flag::None) {
+    virtual bool decode(Stream &stream, const uint8_t flag = Flag::None) {
         unsigned int index = 0;
         uint32_t subidentifier = 0;
-        BER::decode(stream, flag);
+        if(!BER::decode(stream, flag)){
+            return false;
+        }
         unsigned int length = _length;
         _size += length;
         while (length) {
@@ -1588,6 +1623,9 @@ public:
                 uint8_t byte;
                 do {
                     length--;
+                    if(stream.available() == 0){
+                        return false;
+                    }
                     byte = stream.read();
                     subidentifier <<= 7;
                     subidentifier += byte & 0x7F;
@@ -1595,10 +1633,14 @@ public:
                 _value += "." + String(subidentifier);
             } else {
                 length--;
+                if(stream.available() == 0){
+                    return false;
+                }
                 subidentifier = stream.read();
                 _value = String(subidentifier / 40) + "." + String(subidentifier % 40);
             }
         }
+        return true;
     }
 #else
     /**
@@ -1802,22 +1844,29 @@ public:
      * @param stream Stream to read from.
      * @param flag Decoding flag.
      */
-    virtual void decode(Stream &stream, const uint8_t flag = Flag::None) {
-        BER::decode(stream, flag);
+    virtual bool decode(Stream &stream, const uint8_t flag = Flag::None) {
+        if(!BER::decode(stream, flag)){
+            return false;
+        }
         unsigned int length = _length;
         if (length) {
             Type type;
             _length = 0;
             do {
-                type.decode(stream);
+                if(!type.decode(stream)){
+                    return false;
+                }
                 BER *ber = create(type);
                 if (ber) {
-                    ber->decode(stream, Flag::Typed);
+                    if(!ber->decode(stream, Flag::Typed)){
+                        return false;
+                    }
                     length -= ber->getSize();
                     add(ber);
                 }
             } while (length);
         }
+        return true;
     }
 #else
     /**
@@ -2154,8 +2203,8 @@ public:
      * @param stream Stream to read from.
      * @param flag Decoding flag.
      */
-    virtual void decode(Stream &stream, const uint8_t flag = Flag::None) {
-        BER::decodeNumeric<T>(&_value, stream, flag);
+    virtual bool decode(Stream &stream, const uint8_t flag = Flag::None) {
+        return BER::decodeNumeric<T>(&_value, stream, flag);
     }
 #else
     /**
@@ -2386,20 +2435,27 @@ public:
      * @param stream Stream to read from.
      * @param flag Decoding flag.
      */
-    virtual void decode(Stream &stream, const uint8_t flag = Flag::None) {
-        BER::decode(stream, flag);
+    virtual bool decode(Stream &stream, const uint8_t flag = Flag::None) {
+        if(!BER::decode(stream, flag)){
+            return false;
+        }
         uint32_t length = _length;
         if (length) {
             Type type;
             do {
-                type.decode(stream);
+                if(!type.decode(stream)){
+                    return false;
+                }
                 _ber = create(type);
                 if (_ber) {
-                    _ber->decode(stream, Flag::Typed);
+                    if(!_ber->decode(stream, Flag::Typed)){
+                        return false;
+                    }
                     length -= _ber->getSize();
                 }
             } while (length);
         }
+        return true;
     }
 #else
     /**
@@ -2535,8 +2591,8 @@ public:
      * @param stream Stream to read from.
      * @param flag Decoding flag.
      */
-    virtual void decode(Stream &stream, const uint8_t flag = Flag::None) {
-        BER::decodeNumeric<uint32_t>(reinterpret_cast<uint32_t*>(&_value), stream, flag);
+    virtual bool decode(Stream &stream, const uint8_t flag = Flag::None) {
+        return BER::decodeNumeric<uint32_t>(reinterpret_cast<uint32_t*>(&_value), stream, flag);
     }
 #else
     /**

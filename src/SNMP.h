@@ -73,9 +73,12 @@ public:
 #if SNMP_STREAM
         if (_udp->parsePacket()) {
             Message *message = new Message();
-            message->parse(*_udp);
-            _onMessage(message, _udp->remoteIP(), _udp->remotePort());
-            if(destroyMessage){
+            if(message->parse(*_udp)){
+                _onMessage(message, _udp->remoteIP(), _udp->remotePort());
+                if(destroyMessage){
+                    delete message;
+                }
+            }else{
                 delete message;
             }
         }

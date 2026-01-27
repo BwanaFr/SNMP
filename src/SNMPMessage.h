@@ -465,9 +465,12 @@ private:
      *
      * @param stream Stream to read from.
      */
-    void parse(Stream &stream) {
-        decode(stream);
+    bool parse(Stream &stream) {
+        if(!decode(stream)){
+            return false;
+        }
         parse();
+        return true;
     }
 #else
     /**
