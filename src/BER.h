@@ -1859,6 +1859,7 @@ public:
                 BER *ber = create(type);
                 if (ber) {
                     if(!ber->decode(stream, Flag::Typed)){
+                        delete ber;
                         return false;
                     }
                     length -= ber->getSize();
