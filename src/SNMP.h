@@ -87,11 +87,13 @@ public:
             uint32_t length = _udp->available();
             uint8_t *buffer = static_cast<uint8_t*>(malloc(length));
             if (buffer) {
-                _udp->read(buffer, length);
+                int nbRead = _udp->read(buffer, length);
                 Message *message = new Message();
-                message->parse(buffer);
+                bool parseOk = message->parse(buffer, buffer + nbRead);
                 free(buffer);
-                _onMessage(message, _udp->remoteIP(), _udp->remotePort());
+                if(parseOk){
+                    _onMessage(message, _udp->remoteIP(), _udp->remotePort());
+                }
                 if(destroyMessage){
                     delete message;
                 }
@@ -118,10 +120,12 @@ public:
 #else
         uint32_t length = message->getSize(true);
         uint8_t *buffer = static_cast<uint8_t*>(malloc(length));
-        message->build(buffer);
-        _udp->beginPacket(ip, port);
-        _udp->write(buffer, length);
-        free(buffer);
+        if(buffer){
+            message->build(buffer, buffer + length);
+            _udp->beginPacket(ip, port);
+            _udp->write(buffer, length);
+            free(buffer);
+        }
         return _udp->endPacket();
 #endif
     }
