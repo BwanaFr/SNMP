@@ -370,7 +370,7 @@ public:
         return _varBindList;
     }
 
-private:
+
     /**
      * @brief Builds the message.
      *
@@ -466,11 +466,11 @@ private:
      * @param stream Stream to read from.
      */
     bool parse(Stream &stream) {
-        if(!decode(stream)){
-            return false;
+        if(decode(stream)){
+            parse();
+            return true;
         }
-        parse();
-        return true;
+        return false;
     }
 #else
     /**
@@ -495,12 +495,16 @@ private:
      *
      * @param buffer Pointer to the buffer.
      */
-    void parse(uint8_t *buffer) {
-        decode(buffer);
-        parse();
+    bool parse(uint8_t*& buffer, const uint8_t* bufferEnd) {
+        if(decode(buffer, bufferEnd)){
+            parse();
+            return true;
+        }
+        return false;
     }
 #endif
 
+private:
     /**
      * @brief Maps error status.
      *
