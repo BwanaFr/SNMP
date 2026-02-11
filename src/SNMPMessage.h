@@ -483,8 +483,9 @@ public:
      *
      * @param buffer Pointer to the buffer.
      */
-    void build(uint8_t *buffer) {
-        encode(buffer);
+    bool build(uint8_t*& buffer, const uint8_t* bufferEnd) {
+        build();
+        return encode(buffer, bufferEnd);
     }
 
     /**

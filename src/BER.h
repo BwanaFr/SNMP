@@ -261,14 +261,17 @@ public:
      *
      * @param value Integer value to encode.
      * @param buffer Pointer to the buffer.
+     * @param bufferEnd Pointer to the end of the buffer
      * @param size Number of encoded bytes.
      */
-    void encode7bits(uint32_t value, uint8_t *buffer, const uint8_t size) {
+    bool encode7bits(uint32_t value, uint8_t *&buffer, const uint8_t *bufferEnd, const uint8_t size) {
         buffer += size;
+        CHECKBUFFER
         for (uint8_t index = 0; index < size; ++index) {
             *buffer-- = (value & 0x7F) | (index ? 0x80 : 0x00);
             value >>= 7;
         }
+        return true;
     }
 #endif
 
@@ -411,16 +414,21 @@ public:
      * - Long form otherwise.
      *
      * @param buffer Pointer to the buffer.
-     * @return Next position to be written in buffer.
+     * @param bufferEnd Pointer to the end of the buffer
+     * @return True when encoding is ok
      */
-    uint8_t* encode(uint8_t *buffer) {
+    bool encode(uint8_t *&buffer, const uint8_t *bufferEnd) {
+        CHECKBUFFER
         if (_size == 1) {
             *buffer = _class | _form | _tag;
         } else {
             *buffer = _class | _form | 0x1F;
-            Base::encode7bits(_tag, buffer, _size - 1);
+            if(!Base::encode7bits(_tag, buffer, bufferEnd, _size - 1)){
+                return false;
+            }
         }
-        return buffer + _size;
+        buffer += _size;
+        return true;
     }
 
     /**
@@ -430,7 +438,7 @@ public:
      * @param bufferEnd Pointer to the end of the buffer
      * @return True when decoding is ok.
      */
-    bool decode(uint8_t*& buffer, const uint8_t* bufferEnd) {
+    bool decode(uint8_t *&buffer, const uint8_t *bufferEnd) {
         CHECKBUFFER
         _type = *buffer++;
         _class = _type & 0xC0;
@@ -630,23 +638,26 @@ public:
      * - Long form otherwise.
      *
      * @param buffer Pointer to the buffer.
-     * @return Next position to be written in buffer.
+     * @param bufferEnd Pointer to the end of the buffer
+     * @return True when encoding is ok
      */
-    uint8_t* encode(uint8_t *buffer) {
-        uint8_t *pointer = buffer;
+    bool encode(uint8_t *&buffer, const uint8_t *bufferEnd) {
+        CHECKBUFFER
         if (_length > 0x7F) {
-            *pointer = 0x80 | _size - 1;
-            pointer += _size - 1;
-
+            *buffer = 0x80 | _size - 1;
+            buffer += _size - 1;
+            CHECKBUFFER
             unsigned int value = _length;
             for (uint8_t index = 0; index < _size - 1; ++index) {
-                *pointer-- = value;
+                *buffer-- = value;
                 value >>= 8;
             }
         } else {
-            *pointer++ = _length;
+            CHECKBUFFER
+            *buffer = _length;
         }
-        return buffer + _size;
+        buffer += _size;
+        return true;
     }
 
     /**
@@ -656,7 +667,7 @@ public:
      * @param bufferEnd Pointer to the end of the buffer
      * @return True when decoding is ok.
      */
-    bool decode(uint8_t*& buffer, const uint8_t* bufferEnd)  {
+    bool decode(uint8_t *&buffer, const uint8_t *bufferEnd)  {
         CHECKBUFFER
         _length = *buffer++;
         if (_length & 0x80) {
@@ -914,12 +925,14 @@ public:
      * @warning Must be called first by derived class in overridden functions.
      *
      * @param buffer Pointer to the buffer.
-     * @return Next position to be written in buffer.
+     * @param bufferEnd Pointer to the end of the buffer
+     * @return True when encoding is ok
      */
-    virtual uint8_t* encode(uint8_t *buffer) {
-        uint8_t *pointer = _type.encode(buffer);
-        pointer = _length.encode(pointer);
-        return pointer;
+    virtual bool encode(uint8_t *&buffer, const uint8_t *bufferEnd) {
+        if(_type.encode(buffer, bufferEnd)){
+            return _length.encode(buffer, bufferEnd);
+        }
+        return false;
     }
 
     /**
@@ -930,24 +943,27 @@ public:
      * @tparam T C++ type of the numeric value.
      * @param value Numeric value to encode.
      * @param buffer Pointer to the buffer.
-     * @return Next position to be written in buffer.
+     * @param bufferEnd Pointer to the end of the buffer
+     * @return True when encoding is ok
      */
     template<typename T>
-    uint8_t* encodeNumeric(T value, uint8_t *buffer) {
-        uint8_t *pointer = BER::encode(buffer);
-        for (uint8_t index = 0; index < _length; ++index) {
-#if ARDUINO_ARCH_ESP32
-            uint8_t shift = _length - index - 1;
-            if (shift == sizeof(T)) {
-                *pointer++ = 0;
-            } else {
-                *pointer++ = value >> (shift << 3);
+    bool encodeNumeric(T value, uint8_t *&buffer, const uint8_t *bufferEnd) {
+        if(BER::encode(buffer, bufferEnd)){
+            for (uint8_t index = 0; index < _length; ++index) {
+    #if ARDUINO_ARCH_ESP32
+                uint8_t shift = _length - index - 1;
+                CHECKBUFFER
+                if (shift == sizeof(T)) {
+                    *buffer++ = 0;
+                } else {
+                    *buffer++ = value >> (shift << 3);
+                }
+    #else
+                *buffer++ = value >> ((_length - index - 1) << 3);
+    #endif
             }
-#else
-            *pointer++ = value >> ((_length - index - 1) << 3);
-#endif
         }
-        return pointer;
+        return true;
     }
 
     /**
@@ -959,7 +975,7 @@ public:
      * @param bufferEnd Pointer to the end of the buffer
      * @return True when decoding is ok.
      */
-    virtual bool decode(uint8_t*& buffer, const uint8_t* bufferEnd) {
+    virtual bool decode(uint8_t *&buffer, const uint8_t *bufferEnd) {
         if(_type.decode(buffer, bufferEnd)){
             return _length.decode(buffer, bufferEnd);
         }
@@ -979,7 +995,7 @@ public:
      * @return True when decoding is ok.
      */
     template<typename T>
-    bool decodeNumeric(T *value, uint8_t*& buffer, const uint8_t* bufferEnd, const uint8_t flag =
+    bool decodeNumeric(T *value, uint8_t *&buffer, const uint8_t *bufferEnd, const uint8_t flag =
             Flag::None) {
         if(BER::decode(buffer, bufferEnd)){
             CHECKBUFFER
@@ -1152,12 +1168,17 @@ public:
      * value is encoded.
      *
      * @param buffer Pointer to the buffer.
-     * @return Next position to be written in buffer.
+     * @param bufferEnd Pointer to the end of the buffer
+     * @return True when encoding is ok
      */
-    virtual uint8_t* encode(uint8_t *buffer) {
-        uint8_t *pointer = BER::encode(buffer);
-        *pointer = _value ? 0xFF : 0x00;
-        return buffer + SIZE;
+    virtual bool encode(uint8_t *&buffer, const uint8_t *bufferEnd) {
+        if(BER::encode(buffer, bufferEnd)){
+            CHECKBUFFER;
+            *buffer = _value ? 0xFF : 0x00;
+            buffer += SIZE;
+            return true;
+        }
+        return false;
     }
 
     /**
@@ -1170,12 +1191,11 @@ public:
      * @param bufferEnd Pointer to the end of the buffer
      * @return True when decoding is ok.
      */
-    virtual bool decode(uint8_t*& buffer, const uint8_t* bufferEnd)  {
+    virtual bool decode(uint8_t *&buffer, const uint8_t *bufferEnd)  {
         if(BER::decode(buffer, bufferEnd)){
             CHECKBUFFER
             _value = *buffer++;
             buffer += SIZE;
-            CHECKBUFFER
             return true;
         }
         return false;
@@ -1278,10 +1298,11 @@ public:
      * and value.
      *
      * @param buffer Pointer to the buffer.
-     * @return Next position to be written in buffer.
+     * @param bufferEnd Pointer to the end of the buffer
+     * @return True when encoding is ok
      */
-    virtual uint8_t* encode(uint8_t *buffer) {
-        return BER::encodeNumeric<int32_t>(_value, buffer);
+    virtual bool encode(uint8_t *&buffer, const uint8_t *bufferEnd) {
+        return BER::encodeNumeric<int32_t>(_value, buffer, bufferEnd);
     }
 
     /**
@@ -1294,7 +1315,7 @@ public:
      * @param bufferEnd Pointer to the end of the buffer
      * @return True when decoding is ok.
      */
-    virtual bool decode(uint8_t*& buffer, const uint8_t* bufferEnd)  {
+    virtual bool decode(uint8_t *&buffer, const uint8_t *bufferEnd)  {
         return BER::decodeNumeric<int32_t>(&_value, buffer, bufferEnd);
     }
 #endif
@@ -1419,12 +1440,19 @@ public:
      * value is encoded.
      *
      * @param buffer Pointer to the buffer.
-     * @return Next position to be written in buffer.
+     * @param bufferEnd Pointer to the end of the buffer
+     * @return True when encoding is ok
      */
-    virtual uint8_t* encode(uint8_t *buffer) {
-        uint8_t *pointer = BER::encode(buffer);
-        memcpy(pointer, _value, _length);
-        return pointer + _length;
+    virtual bool encode(uint8_t *&buffer, const uint8_t *bufferEnd) {
+        if(BER::encode(buffer, bufferEnd)){
+            const uint8_t* ptrEnd = buffer + _length;
+            if(ptrEnd < bufferEnd){
+                memcpy(buffer, _value, _length);
+                buffer += _length;
+                return true;
+            }
+        }
+        return false;
     }
 
     /**
@@ -1437,7 +1465,7 @@ public:
      * @param bufferEnd Pointer to the end of the buffer
      * @return True when decoding is ok.
      */
-    virtual bool decode(uint8_t*& buffer, const uint8_t* bufferEnd)  {
+    virtual bool decode(uint8_t *&buffer, const uint8_t *bufferEnd)  {
         if(BER::decode(buffer, bufferEnd)){
             setValue(reinterpret_cast<const char*>(buffer), _length);
             CHECKBUFFER
@@ -1662,46 +1690,53 @@ public:
      * ObjectIdentifierBER value is encoded.
      *
      * @param buffer Pointer to the buffer.
-     * @return Next position to be written in buffer.
+     * @param bufferEnd Pointer to the end of the buffer
+     * @return True when encoding is ok
      */
-    virtual uint8_t* encode(uint8_t *buffer) {
+    virtual bool encode(uint8_t *&buffer, const uint8_t *bufferEnd) {
         unsigned int index = 0;
         uint32_t subidentifier = 0;
-        uint8_t *pointer = BER::encode(buffer);
-        char *token = const_cast<char*>(_value.c_str());
-        while (token != NULL) {
-            char *next = strchr(token + 1, '.');
-            switch (index) {
-            case 0:
-                subidentifier = atoi(token);
-                if (next) {
+        if(BER::encode(buffer, bufferEnd)){
+            char *token = const_cast<char*>(_value.c_str());
+            while (token != NULL) {
+                char *next = strchr(token + 1, '.');
+                switch (index) {
+                case 0:
+                    subidentifier = atoi(token);
+                    if (next) {
+                        break;
+                    }
+                    // No break
+                case 1:
+                    if (index) {
+                    subidentifier = subidentifier * 40 + atoi(++token);
+                    }
+                    CHECKBUFFER
+                    *buffer = subidentifier;
+                    break;
+                    ;
+                default: {
+                    subidentifier = atol(++token);
+                    uint32_t value = subidentifier;
+                    uint32_t length = 0;
+                    do {
+                        value >>= 7;
+                        length++;
+                    } while (value);
+                    if(!Base::encode7bits(subidentifier, buffer, bufferEnd, length)){
+                        return false;
+                    }
+                    buffer += length;
+                }
                     break;
                 }
-                // No break
-            case 1:
-                if (index) {
-                subidentifier = subidentifier * 40 + atoi(++token);
-                }
-                *pointer = subidentifier;
-                break;
-                ;
-            default: {
-                subidentifier = atol(++token);
-                uint32_t value = subidentifier;
-                uint32_t length = 0;
-                do {
-                    value >>= 7;
-                    length++;
-                } while (value);
-                Base::encode7bits(subidentifier, pointer, length);
-                pointer += length;
+                token = next;
+                index++;
             }
-                break;
-            }
-            token = next;
-            index++;
+            ++buffer;
+            return true;
         }
-        return ++pointer;
+        return false;
     }
 
     /**
@@ -1714,11 +1749,11 @@ public:
      * @param bufferEnd Pointer to the end of the buffer
      * @return True when decoding is ok.
      */
-    virtual bool decode(uint8_t*& buffer, const uint8_t* bufferEnd)  {
+    virtual bool decode(uint8_t *&buffer, const uint8_t *bufferEnd)  {
         unsigned int index = 0;
         uint32_t subidentifier = 0;
         if(BER::decode(buffer, bufferEnd)){
-            uint8_t *end = buffer + _length;
+            uint8_t* end = buffer + _length;
             do {
                 if (index++) {
                     subidentifier = 0;
@@ -1894,20 +1929,27 @@ public:
      * the array is encoded.
      *
      * @param buffer Pointer to the buffer.
-     * @return Next position to be written in buffer.
+     * @param bufferEnd Pointer to the end of the buffer
+     * @return True when encoding is ok
      */
-    virtual uint8_t* encode(uint8_t *buffer) {
-        uint8_t *pointer = BER::encode(buffer);
+    virtual bool encode(uint8_t *&buffer, const uint8_t *bufferEnd) {
+        if(BER::encode(buffer, bufferEnd)){
 #if SNMP_VECTOR
-        for (auto ber : _bers) {
-            pointer = ber->encode(pointer);
-        }
+            for (auto ber : _bers) {
+                if(!ber->encode(buffer, bufferEnd)){
+                    return false;
+                }
+            }
 #else
-        for (uint8_t index = 0; index < _count; ++index) {
-            pointer = _bers[index]->encode(pointer);
-        }
+            for (uint8_t index = 0; index < _count; ++index) {
+                if(!_bers[index]->encode(buffer, bufferEnd)){
+                    return false;
+                }
+            }
 #endif
-        return pointer;
+            return true;
+        }
+        return false;
     }
 
     /**
@@ -1920,10 +1962,10 @@ public:
      * @param bufferEnd Pointer to the end of the buffer
      * @return True when decoding is ok.
      */
-    virtual bool decode(uint8_t*& buffer, const uint8_t* bufferEnd)  {
+    virtual bool decode(uint8_t *&buffer, const uint8_t *bufferEnd)  {
         if(BER::decode(buffer, bufferEnd)){
             if (_length) {
-                const uint8_t *end = buffer + _length;
+                const uint8_t* end = buffer + _length;
                 _length = 0;
                 Type type;
                 do {
@@ -2244,10 +2286,11 @@ public:
      * and value.
      *
      * @param buffer Pointer to the buffer.
-     * @return Next position to be written in buffer.
+     * @param bufferEnd Pointer to the end of the buffer
+     * @return True when encoding is ok
      */
-    virtual uint8_t* encode(uint8_t *buffer) {
-        return BER::encodeNumeric<T>(_value, buffer);
+    virtual bool encode(uint8_t *&buffer, const uint8_t *bufferEnd) {
+        return BER::encodeNumeric<T>(_value, buffer, bufferEnd);
     }
 
     /**
@@ -2260,7 +2303,7 @@ public:
      * @param bufferEnd Pointer to the end of the buffer
      * @return True when decoding is ok.
      */
-    virtual bool decode(uint8_t*& buffer, const uint8_t* bufferEnd) {
+    virtual bool decode(uint8_t *&buffer, const uint8_t *bufferEnd) {
         return BER::decodeNumeric<T>(&_value, buffer, bufferEnd);
     }
 #endif
@@ -2496,11 +2539,14 @@ public:
      * BER is encoded.
      *
      * @param buffer Pointer to the buffer.
-     * @return Next position to be written in buffer.
+     * @param bufferEnd Pointer to the end of the buffer
+     * @return True when encoding is ok
      */
-    virtual uint8_t* encode(uint8_t *buffer) {
-        uint8_t *pointer = BER::encode(buffer);
-        return _ber->encode(pointer);
+    virtual bool encode(uint8_t *&buffer, const uint8_t *bufferEnd) {
+        if(BER::encode(buffer, bufferEnd)){
+            return _ber->encode(buffer, bufferEnd);
+        }
+        return false;
     }
 
     /**
@@ -2513,9 +2559,9 @@ public:
      * @param bufferEnd Pointer to the end of the buffer
      * @return True when decoding is ok.
      */
-    virtual bool decode(uint8_t*& buffer, const uint8_t* bufferEnd) {
+    virtual bool decode(uint8_t *&buffer, const uint8_t *bufferEnd) {
         if(BER::decode(buffer, bufferEnd)){
-            uint8_t *end = buffer + _length;
+            uint8_t* end = buffer + _length;
             if (_length) {
                 Type type;
                 do {
@@ -2643,11 +2689,12 @@ public:
      * and value.
      *
      * @param buffer Pointer to the buffer.
-     * @return Next position to be written in buffer.
+     * @param bufferEnd Pointer to the end of the buffer
+     * @return True when encoding is ok
      */
-    virtual uint8_t* encode(uint8_t *buffer) {
+    virtual bool encode(uint8_t *&buffer, const uint8_t *bufferEnd) {
         return BER::encodeNumeric<uint32_t>(
-                *(reinterpret_cast<uint32_t*>(&_value)), buffer);
+                *(reinterpret_cast<uint32_t*>(&_value)), buffer, bufferEnd);
     }
 
     /**
@@ -2660,7 +2707,7 @@ public:
      * @param bufferEnd Pointer to the end of the buffer
      * @return True when decoding is ok.
      */
-    virtual bool decode(uint8_t*& buffer, const uint8_t* bufferEnd) {
+    virtual bool decode(uint8_t *&buffer, const uint8_t *bufferEnd) {
         return BER::decodeNumeric<uint32_t>(
                 reinterpret_cast<uint32_t*>(&_value), buffer, bufferEnd);
     }
