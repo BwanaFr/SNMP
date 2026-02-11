@@ -7,25 +7,31 @@
 #ifdef __has_include
 #if __has_include("SNMPcfg.h")
 #include "SNMPcfg.h"
-#else
+#endif
+#endif
+
 /**
  * @def SNMP_STREAM
  * @brief Defines read and write operations.
  */
+#ifndef SNMP_STREAM
 #define SNMP_STREAM 1
+#endif
 
 /**
  * @def SNMP_VECTOR
  * @brief Defines storage for ArrayBER.
  */
+#ifndef SNMP_VECTOR
 #define SNMP_VECTOR 0
+#endif
 
 /**
  * @def SNMP_CAPACITY
  * @brief Defines capacity of SequenceBER.
  */
+#ifndef SNMP_CAPACITY
 #define SNMP_CAPACITY 6
-#endif
 #endif
 
 #if SNMP_STREAM
@@ -34,6 +40,12 @@
 
 #if SNMP_VECTOR
 #include <vector>
+#endif
+
+#if SNMP_STREAM
+#define CHECKSTREAM if(stream.available() == 0) return false;
+#else
+#define CHECKBUFFER if(buffer >= bufferEnd) return false;
 #endif
 
 /**
@@ -249,14 +261,17 @@ public:
      *
      * @param value Integer value to encode.
      * @param buffer Pointer to the buffer.
+     * @param bufferEnd Pointer to the end of the buffer
      * @param size Number of encoded bytes.
      */
-    void encode7bits(uint32_t value, uint8_t *buffer, const uint8_t size) {
+    bool encode7bits(uint32_t value, uint8_t *&buffer, const uint8_t *bufferEnd, const uint8_t size) {
         buffer += size;
+        CHECKBUFFER
         for (uint8_t index = 0; index < size; ++index) {
             *buffer-- = (value & 0x7F) | (index ? 0x80 : 0x00);
             value >>= 7;
         }
+        return true;
     }
 #endif
 
@@ -286,39 +301,39 @@ public:
      */
     enum : uint16_t {
         // Universal
-        Boolean = Class::Universal | Form::Primitive | 0x01,    /**< 0x01 */
-        Integer,                                                /**< 0x02 */
-        BitString,                                              /**< 0x03 */
-        OctetString,                                            /**< 0x04 */
-        Null,                                                   /**< 0x05 */
-        ObjectIdentifier,                                       /**< 0x06 */
-        Sequence = Class::Universal | Form::Constructed | 0x10, /**< 0x30 */
+        Boolean = +Class::Universal | +Form::Primitive | 0x01,                                              /**< 0x01 */
+        Integer,                                                                                            /**< 0x02 */
+        BitString,                                                                                          /**< 0x03 */
+        OctetString,                                                                                        /**< 0x04 */
+        Null,                                                                                               /**< 0x05 */
+        ObjectIdentifier,                                                                                   /**< 0x06 */
+        Sequence = +Class::Universal | +Form::Constructed | 0x10,                                           /**< 0x30 */
         // Application
-        IPAddress = Class::Application | 0x00,                  /**< 0x40 */
-        Counter32,                                              /**< 0x41 */
-        Gauge32,                                                /**< 0x42 */
-        TimeTicks,                                              /**< 0x43 */
-        Opaque,                                                 /**< 0x44 */
-        Counter64 = Class::Application | 0x06,                  /**< 0x46 */
-        Float = Class::Application | 0x08,                      /**< 0x48 */
+        IPAddress = +Class::Application | 0x00,                                                             /**< 0x40 */
+        Counter32,                                                                                          /**< 0x41 */
+        Gauge32,                                                                                            /**< 0x42 */
+        TimeTicks,                                                                                          /**< 0x43 */
+        Opaque,                                                                                             /**< 0x44 */
+        Counter64 = +Class::Application | 0x06,                                                             /**< 0x46 */
+        Float = +Class::Application | 0x08,                                                                 /**< 0x48 */
         // Context
-        NoSuchObject = Class::Context | 0x00,                   /**< 0x80 */
-        NoSuchInstance,                                         /**< 0x81 */
-        EndOfMIBView,                                           /**< 0x82 */
+        NoSuchObject = +Class::Context | 0x00,                                                              /**< 0x80 */
+        NoSuchInstance,                                                                                     /**< 0x81 */
+        EndOfMIBView,                                                                                       /**< 0x82 */
         // Version 1
-        GetRequest = Class::Context | Form::Constructed | 0x00, /**< 0xA0 */
-        GetNextRequest,                                         /**< 0xA1 */
-        GetResponse,                                            /**< 0xA2 */
-        SetRequest,                                             /**< 0xA3 */
-        Trap,                                                   /**< 0xA4 */
+        GetRequest = +Class::Context | +Form::Constructed | 0x00,                                           /**< 0xA0 */
+        GetNextRequest,                                                                                     /**< 0xA1 */
+        GetResponse,                                                                                        /**< 0xA2 */
+        SetRequest,                                                                                         /**< 0xA3 */
+        Trap,                                                                                               /**< 0xA4 */
         // Version 2C
-        GetBulkRequest,                                         /**< 0xA5 */
-        InformRequest,                                          /**< 0xA6 */
-        SNMPv2Trap,                                             /**< 0xA7 */
+        GetBulkRequest,                                                                                     /**< 0xA5 */
+        InformRequest,                                                                                      /**< 0xA6 */
+        SNMPv2Trap,                                                                                         /**< 0xA7 */
         // Version 3
-        Report,                                                 /**< 0xA8 */
+        Report,                                                                                             /**< 0xA8 */
         // Opaque type
-        OpaqueFloat = 0x9F78                                    /**< 0x9F78 */
+        OpaqueFloat = 0x9F78                                                                                /**< 0x9F78 */
     };
 
     /**
@@ -369,8 +384,9 @@ public:
      *
      * @param stream Stream to read from.
      */
-    void decode(Stream &stream) {
+    bool decode(Stream &stream) {
         _size = 1;
+        CHECKSTREAM
         _type = stream.read();
         _class = _type & 0xC0;
         _form = _type & 0x20;
@@ -380,11 +396,13 @@ public:
             do {
                 _size++;
                 _type <<= 8;
+                CHECKSTREAM
                 _type |= stream.read();
                 _tag <<= 7;
                 _tag |= _type & 0x7F;
             } while (_type & 0x80);
         }
+        return true;
     }
 #else
     /**
@@ -396,25 +414,32 @@ public:
      * - Long form otherwise.
      *
      * @param buffer Pointer to the buffer.
-     * @return Next position to be written in buffer.
+     * @param bufferEnd Pointer to the end of the buffer
+     * @return True when encoding is ok
      */
-    uint8_t* encode(uint8_t *buffer) {
+    bool encode(uint8_t *&buffer, const uint8_t *bufferEnd) {
+        CHECKBUFFER
         if (_size == 1) {
             *buffer = _class | _form | _tag;
         } else {
             *buffer = _class | _form | 0x1F;
-            Base::encode7bits(_tag, buffer, _size - 1);
+            if(!Base::encode7bits(_tag, buffer, bufferEnd, _size - 1)){
+                return false;
+            }
         }
-        return buffer + _size;
+        buffer += _size;
+        return true;
     }
 
     /**
      * @brief Decodes BER type from memory buffer.
      *
-     * @param buffer Pointer to the buffer.
-     * @return Next position to be read in buffer.
+     * @param buffer Reference to pointer to the buffer (will be incremented).
+     * @param bufferEnd Pointer to the end of the buffer
+     * @return True when decoding is ok.
      */
-    uint8_t* decode(uint8_t *buffer) {
+    bool decode(uint8_t *&buffer, const uint8_t *bufferEnd) {
+        CHECKBUFFER
         _type = *buffer++;
         _class = _type & 0xC0;
         _form = _type & 0x20;
@@ -423,12 +448,13 @@ public:
             _tag = 0;
             do {
                 _type <<= 8;
+                CHECKBUFFER
                 _type |= *buffer++;
                 _tag <<= 7;
                 _tag |= _type & 0x7F;
             } while (_type & 0x80);
         }
-        return buffer;
+        return true;
     }
 #endif
 
@@ -587,17 +613,20 @@ public:
      *
      * @param stream Stream to read from.
      */
-    void decode(Stream &stream) {
+    bool decode(Stream &stream) {
+        CHECKSTREAM
         _length = stream.read();
         if (_length & 0x80) {
             _size = _length & 0x7F;
             _length = 0;
             for (uint8_t index = 0; index < _size; ++index) {
                 _length <<= 8;
+                CHECKSTREAM
                 _length += stream.read();
             }
             _size++;
         }
+        return true;
     }
 #else
     /**
@@ -609,44 +638,49 @@ public:
      * - Long form otherwise.
      *
      * @param buffer Pointer to the buffer.
-     * @return Next position to be written in buffer.
+     * @param bufferEnd Pointer to the end of the buffer
+     * @return True when encoding is ok
      */
-    uint8_t* encode(uint8_t *buffer) {
-        uint8_t *pointer = buffer;
+    bool encode(uint8_t *&buffer, const uint8_t *bufferEnd) {
+        CHECKBUFFER
         if (_length > 0x7F) {
-            *pointer = 0x80 | _size - 1;
-            pointer += _size - 1;
-
+            *buffer = 0x80 | _size - 1;
+            buffer += _size - 1;
+            CHECKBUFFER
             unsigned int value = _length;
             for (uint8_t index = 0; index < _size - 1; ++index) {
-                *pointer-- = value;
+                *buffer-- = value;
                 value >>= 8;
             }
         } else {
-            *pointer++ = _length;
+            CHECKBUFFER
+            *buffer = _length;
         }
-        return buffer + _size;
+        buffer += _size;
+        return true;
     }
 
     /**
      * @brief Decodes BER length from memory buffer.
      *
-     * @param buffer Pointer to the buffer.
-     * @return Next position to be read in buffer.
+     * @param buffer Reference to pointer to the buffer (will be incremented).
+     * @param bufferEnd Pointer to the end of the buffer
+     * @return True when decoding is ok.
      */
-    uint8_t* decode(uint8_t *buffer) {
-        uint8_t *pointer = buffer;
-        _length = *pointer++;
+    bool decode(uint8_t *&buffer, const uint8_t *bufferEnd)  {
+        CHECKBUFFER
+        _length = *buffer++;
         if (_length & 0x80) {
             _size = _length & 0x7F;
             _length = 0;
             for (uint8_t index = 0; index < _size; ++index) {
                 _length <<= 8;
-                _length += *pointer++;
+                CHECKBUFFER
+                _length += *buffer++;
             }
             _size++;
         }
-        return pointer;
+        return true;
     }
 #endif
 
@@ -847,11 +881,13 @@ public:
      * @param stream Stream to read from.
      * @param flag Decoding flag.
      */
-    virtual void decode(Stream &stream, const uint8_t flag = Flag::None) {
+    virtual bool decode(Stream &stream, const uint8_t flag = Flag::None) {
         if ((flag & Flag::Typed) == Flag::None) {
-            _type.decode(stream);
+            if(!_type.decode(stream)){
+                return false;
+            }
         }
-        _length.decode(stream);
+        return _length.decode(stream);
     }
 
     /**
@@ -865,8 +901,11 @@ public:
      * @param flag Decoding flag.
      */
     template<typename T>
-    void decodeNumeric(T *value, Stream &stream, const uint8_t flag = Flag::None) {
-        BER::decode(stream, flag);
+    bool decodeNumeric(T *value, Stream &stream, const uint8_t flag = Flag::None) {
+        if(!BER::decode(stream, flag)){
+            return false;
+        }
+        CHECKSTREAM
         if (T() - 1 < 0) {
             *value = stream.peek() & 0x80 ? 0xFFFFFFFF : 0;
         } else {
@@ -874,8 +913,10 @@ public:
         }
         for (uint8_t index = 0; index < _length; ++index) {
             *value <<= 8;
+            CHECKSTREAM
             *value |= static_cast<uint8_t>(stream.read());
         }
+        return true;
     }
 #else
     /**
@@ -884,12 +925,14 @@ public:
      * @warning Must be called first by derived class in overridden functions.
      *
      * @param buffer Pointer to the buffer.
-     * @return Next position to be written in buffer.
+     * @param bufferEnd Pointer to the end of the buffer
+     * @return True when encoding is ok
      */
-    virtual uint8_t* encode(uint8_t *buffer) {
-        uint8_t *pointer = _type.encode(buffer);
-        pointer = _length.encode(pointer);
-        return pointer;
+    virtual bool encode(uint8_t *&buffer, const uint8_t *bufferEnd) {
+        if(_type.encode(buffer, bufferEnd)){
+            return _length.encode(buffer, bufferEnd);
+        }
+        return false;
     }
 
     /**
@@ -900,15 +943,27 @@ public:
      * @tparam T C++ type of the numeric value.
      * @param value Numeric value to encode.
      * @param buffer Pointer to the buffer.
-     * @return Next position to be written in buffer.
+     * @param bufferEnd Pointer to the end of the buffer
+     * @return True when encoding is ok
      */
     template<typename T>
-    uint8_t* encodeNumeric(T value, uint8_t *buffer) {
-        uint8_t *pointer = BER::encode(buffer);
-        for (uint8_t index = 0; index < _length; ++index) {
-            *pointer++ = value >> ((_length - index - 1) << 3);
+    bool encodeNumeric(T value, uint8_t *&buffer, const uint8_t *bufferEnd) {
+        if(BER::encode(buffer, bufferEnd)){
+            for (uint8_t index = 0; index < _length; ++index) {
+    #if ARDUINO_ARCH_ESP32
+                uint8_t shift = _length - index - 1;
+                CHECKBUFFER
+                if (shift == sizeof(T)) {
+                    *buffer++ = 0;
+                } else {
+                    *buffer++ = value >> (shift << 3);
+                }
+    #else
+                *buffer++ = value >> ((_length - index - 1) << 3);
+    #endif
+            }
         }
-        return pointer;
+        return true;
     }
 
     /**
@@ -916,13 +971,15 @@ public:
      *
      * @warning Must be called first by derived class in overridden functions.
      *
-     * @param buffer Pointer to the buffer.
-     * @return Next position to be read in buffer.
+     * @param buffer Reference to pointer to the buffer (will be incremented).
+     * @param bufferEnd Pointer to the end of the buffer
+     * @return True when decoding is ok.
      */
-    virtual uint8_t* decode(uint8_t *buffer) {
-        uint8_t *pointer = _type.decode(buffer);
-        pointer = _length.decode(pointer);
-        return pointer;
+    virtual bool decode(uint8_t *&buffer, const uint8_t *bufferEnd) {
+        if(_type.decode(buffer, bufferEnd)){
+            return _length.decode(buffer, bufferEnd);
+        }
+        return false;
     }
 
     /**
@@ -932,24 +989,29 @@ public:
      *
      * @tparam T C++ type of the numeric value.
      * @param value Numeric value to decode.
-     * @param buffer Pointer to the buffer.
+     * @param buffer Reference to pointer to the buffer (will be incremented).
+     * @param bufferEnd Pointer to the end of the buffer
      * @param flag Decoding flag.
-     * @return Next position to be read in buffer.
+     * @return True when decoding is ok.
      */
     template<typename T>
-    uint8_t* decodeNumeric(T *value, uint8_t *buffer, const uint8_t flag =
+    bool decodeNumeric(T *value, uint8_t *&buffer, const uint8_t *bufferEnd, const uint8_t flag =
             Flag::None) {
-        uint8_t *pointer = BER::decode(buffer);
-        if (T() - 1 < 0) {
-            *value = *pointer & 0x80 ? 0xFFFFFFFF : 0;
-        } else {
-            *value = 0;
+        if(BER::decode(buffer, bufferEnd)){
+            CHECKBUFFER
+            if (T() - 1 < 0) {
+                *value = *buffer & 0x80 ? 0xFFFFFFFF : 0;
+            } else {
+                *value = 0;
+            }
+            for (unsigned int index = 0; index < _length; ++index) {
+                *value <<= 8;
+                CHECKBUFFER
+                *value |= static_cast<uint8_t>(*buffer++);
+            }
+            return true;
         }
-        for (unsigned int index = 0; index < _length; ++index) {
-            *value <<= 8;
-            *value |= static_cast<uint8_t>(*pointer++);
-        }
-        return pointer;
+        return false;
     }
 #endif
 
@@ -1090,9 +1152,13 @@ public:
      * @param stream Stream to read from.
      * @param flag Decoding flag.
      */
-    virtual void decode(Stream &stream, const uint8_t flag = Flag::None) {
-        BER::decode(stream, flag);
+    virtual bool decode(Stream &stream, const uint8_t flag = Flag::None) {
+        if(!BER::decode(stream, flag)){
+            return false;
+        }
+        CHECKSTREAM
         _value = stream.read();
+        return true;
     }
 #else
     /**
@@ -1102,12 +1168,17 @@ public:
      * value is encoded.
      *
      * @param buffer Pointer to the buffer.
-     * @return Next position to be written in buffer.
+     * @param bufferEnd Pointer to the end of the buffer
+     * @return True when encoding is ok
      */
-    virtual uint8_t* encode(uint8_t *buffer) {
-        uint8_t *pointer = BER::encode(buffer);
-        *pointer = _value ? 0xFF : 0x00;
-        return buffer + SIZE;
+    virtual bool encode(uint8_t *&buffer, const uint8_t *bufferEnd) {
+        if(BER::encode(buffer, bufferEnd)){
+            CHECKBUFFER;
+            *buffer = _value ? 0xFF : 0x00;
+            buffer += SIZE;
+            return true;
+        }
+        return false;
     }
 
     /**
@@ -1116,13 +1187,18 @@ public:
      * Type and length are decoded by the inherited BER::decode() then BooleanBER
      * value is decoded.
      *
-     * @param buffer Pointer to the buffer.
-     * @return Next position to be read in buffer.
+     * @param buffer Reference to pointer to the buffer (will be incremented).
+     * @param bufferEnd Pointer to the end of the buffer
+     * @return True when decoding is ok.
      */
-    virtual uint8_t* decode(uint8_t *buffer) {
-        uint8_t *pointer = BER::decode(buffer);
-        _value = *pointer++;
-        return buffer + SIZE;
+    virtual bool decode(uint8_t *&buffer, const uint8_t *bufferEnd)  {
+        if(BER::decode(buffer, bufferEnd)){
+            CHECKBUFFER
+            _value = *buffer++;
+            buffer += SIZE;
+            return true;
+        }
+        return false;
     }
 #endif
 
@@ -1210,8 +1286,8 @@ public:
      * @param stream Stream to read from.
      * @param flag Decoding flag.
      */
-    virtual void decode(Stream &stream, const uint8_t flag = Flag::None) {
-        BER::decodeNumeric<int32_t>(&_value, stream, flag);
+    virtual bool decode(Stream &stream, const uint8_t flag = Flag::None) {
+        return BER::decodeNumeric<int32_t>(&_value, stream, flag);
     }
 
 #else
@@ -1222,10 +1298,11 @@ public:
      * and value.
      *
      * @param buffer Pointer to the buffer.
-     * @return Next position to be written in buffer.
+     * @param bufferEnd Pointer to the end of the buffer
+     * @return True when encoding is ok
      */
-    virtual uint8_t* encode(uint8_t *buffer) {
-        return BER::encodeNumeric<int32_t>(_value, buffer);
+    virtual bool encode(uint8_t *&buffer, const uint8_t *bufferEnd) {
+        return BER::encodeNumeric<int32_t>(_value, buffer, bufferEnd);
     }
 
     /**
@@ -1234,11 +1311,12 @@ public:
      * The inherited BER::decodeNumeric<T>() template function decodes type, length
      * and value.
      *
-     * @param buffer Pointer to the buffer.
-     * @return Next position to be read in buffer.
+     * @param buffer Reference to pointer to the buffer (will be incremented).
+     * @param bufferEnd Pointer to the end of the buffer
+     * @return True when decoding is ok.
      */
-    virtual uint8_t* decode(uint8_t *buffer) {
-        return BER::decodeNumeric<int32_t>(&_value, buffer);
+    virtual bool decode(uint8_t *&buffer, const uint8_t *bufferEnd)  {
+        return BER::decodeNumeric<int32_t>(&_value, buffer, bufferEnd);
     }
 #endif
 
@@ -1347,10 +1425,12 @@ public:
      * @param stream Stream to read from.
      * @param flag Decoding flag.
      */
-    virtual void decode(Stream &stream, const uint8_t flag = Flag::None) {
-        BER::decode(stream, flag);
+    virtual bool decode(Stream &stream, const uint8_t flag = Flag::None) {
+        if(!BER::decode(stream, flag)){
+            return false;
+        }
         allocate();
-        stream.readBytes(_value, _length);
+        return stream.readBytes(_value, _length) == _length;
     }
 #else
     /**
@@ -1360,12 +1440,19 @@ public:
      * value is encoded.
      *
      * @param buffer Pointer to the buffer.
-     * @return Next position to be written in buffer.
+     * @param bufferEnd Pointer to the end of the buffer
+     * @return True when encoding is ok
      */
-    virtual uint8_t* encode(uint8_t *buffer) {
-        uint8_t *pointer = BER::encode(buffer);
-        memcpy(pointer, _value, _length);
-        return pointer + _length;
+    virtual bool encode(uint8_t *&buffer, const uint8_t *bufferEnd) {
+        if(BER::encode(buffer, bufferEnd)){
+            const uint8_t* ptrEnd = buffer + _length;
+            if(ptrEnd < bufferEnd){
+                memcpy(buffer, _value, _length);
+                buffer += _length;
+                return true;
+            }
+        }
+        return false;
     }
 
     /**
@@ -1374,13 +1461,18 @@ public:
      * Type and length are decoded by the inherited BER::decode() then OctetStringBER
      * value is decoded.
      *
-     * @param buffer Pointer to the buffer.
-     * @return Next position to be read in buffer.
+     * @param buffer Reference to pointer to the buffer (will be incremented).
+     * @param bufferEnd Pointer to the end of the buffer
+     * @return True when decoding is ok.
      */
-    virtual uint8_t* decode(uint8_t *buffer) {
-        uint8_t *pointer = BER::decode(buffer);
-        setValue(reinterpret_cast<const char*>(pointer), _length);
-        return pointer + _length;
+    virtual bool decode(uint8_t *&buffer, const uint8_t *bufferEnd)  {
+        if(BER::decode(buffer, bufferEnd)){
+            setValue(reinterpret_cast<const char*>(buffer), _length);
+            CHECKBUFFER
+            buffer += _length;
+            return true;
+        }
+        return false;
     }
 #endif
 
@@ -1482,6 +1574,7 @@ public:
  *
  * | Object Identifier            | Encoding                                     |
  * |:-----------------------------|:---------------------------------------------|
+ * | 1                            | 06 01 01                                     |
  * | 1.3.6.1.2.1.2.2.1.8.4096     | 06 0B 2B 06 01 02 01 02 02 01 08 A0 00       |
  * | 1.3.6.1.4.1.54858.81.1.1.1.0 | 06 0D 2B 06 01 04 01 83 AC 4A 51 01 01 01 00 |
  */
@@ -1517,12 +1610,18 @@ public:
         BER::encode(stream);
         char *token = const_cast<char*>(_value.c_str());
         while (token != NULL) {
+            char *next = strchr(token + 1, '.');
             switch (index) {
             case 0:
                 subidentifier = atoi(token);
-                break;
+                if (next) {
+                    break;
+                }
+                // No break
             case 1:
-                subidentifier = subidentifier * 40 + atoi(++token);
+                if (index) {
+                    subidentifier = subidentifier * 40 + atoi(++token);
+                }
                 stream.write(subidentifier);
                 _size++;
                 break;
@@ -1540,7 +1639,7 @@ public:
             }
                 break;
             }
-            token = strchr(token, '.');
+            token = next;
             index++;
         }
     }
@@ -1554,10 +1653,12 @@ public:
      * @param stream Stream to read from.
      * @param flag Decoding flag.
      */
-    virtual void decode(Stream &stream, const uint8_t flag = Flag::None) {
+    virtual bool decode(Stream &stream, const uint8_t flag = Flag::None) {
         unsigned int index = 0;
         uint32_t subidentifier = 0;
-        BER::decode(stream, flag);
+        if(!BER::decode(stream, flag)){
+            return false;
+        }
         unsigned int length = _length;
         _size += length;
         while (length) {
@@ -1566,6 +1667,7 @@ public:
                 uint8_t byte;
                 do {
                     length--;
+                    CHECKSTREAM
                     byte = stream.read();
                     subidentifier <<= 7;
                     subidentifier += byte & 0x7F;
@@ -1573,10 +1675,12 @@ public:
                 _value += "." + String(subidentifier);
             } else {
                 length--;
+                CHECKSTREAM
                 subidentifier = stream.read();
                 _value = String(subidentifier / 40) + "." + String(subidentifier % 40);
             }
         }
+        return true;
     }
 #else
     /**
@@ -1586,40 +1690,53 @@ public:
      * ObjectIdentifierBER value is encoded.
      *
      * @param buffer Pointer to the buffer.
-     * @return Next position to be written in buffer.
+     * @param bufferEnd Pointer to the end of the buffer
+     * @return True when encoding is ok
      */
-    virtual uint8_t* encode(uint8_t *buffer) {
+    virtual bool encode(uint8_t *&buffer, const uint8_t *bufferEnd) {
         unsigned int index = 0;
         uint32_t subidentifier = 0;
-        uint8_t *pointer = BER::encode(buffer);
-        char *token = const_cast<char*>(_value.c_str());
-        while (token != NULL) {
-            switch (index) {
-            case 0:
-                subidentifier = atoi(token);
-                break;
-            case 1:
-                subidentifier = subidentifier * 40 + atoi(++token);
-                *pointer = subidentifier;
-                break;
-                ;
-            default: {
-                subidentifier = atol(++token);
-                uint32_t value = subidentifier;
-                uint32_t length = 0;
-                do {
-                    value >>= 7;
-                    length++;
-                } while (value);
-                Base::encode7bits(subidentifier, pointer, length);
-                pointer += length;
+        if(BER::encode(buffer, bufferEnd)){
+            char *token = const_cast<char*>(_value.c_str());
+            while (token != NULL) {
+                char *next = strchr(token + 1, '.');
+                switch (index) {
+                case 0:
+                    subidentifier = atoi(token);
+                    if (next) {
+                        break;
+                    }
+                    // No break
+                case 1:
+                    if (index) {
+                    subidentifier = subidentifier * 40 + atoi(++token);
+                    }
+                    CHECKBUFFER
+                    *buffer = subidentifier;
+                    break;
+                    ;
+                default: {
+                    subidentifier = atol(++token);
+                    uint32_t value = subidentifier;
+                    uint32_t length = 0;
+                    do {
+                        value >>= 7;
+                        length++;
+                    } while (value);
+                    if(!Base::encode7bits(subidentifier, buffer, bufferEnd, length)){
+                        return false;
+                    }
+                    buffer += length;
+                }
+                    break;
+                }
+                token = next;
+                index++;
             }
-                break;
-            }
-            token = strchr(token, '.');
-            index++;
+            ++buffer;
+            return true;
         }
-        return ++pointer;
+        return false;
     }
 
     /**
@@ -1628,29 +1745,34 @@ public:
      * Type and length are decoded by the inherited BER::decode() then
      * ObjectIdentifierBER value is decoded.
      *
-     * @param buffer Pointer to the buffer.
-     * @return Next position to be read in buffer.
+     * @param buffer Reference to pointer to the buffer (will be incremented).
+     * @param bufferEnd Pointer to the end of the buffer
+     * @return True when decoding is ok.
      */
-    virtual uint8_t* decode(uint8_t *buffer) {
+    virtual bool decode(uint8_t *&buffer, const uint8_t *bufferEnd)  {
         unsigned int index = 0;
         uint32_t subidentifier = 0;
-        uint8_t *pointer = BER::decode(buffer);
-        uint8_t *end = pointer + _length;
-        do {
-            if (index++) {
-                subidentifier = 0;
-                do {
-                    subidentifier <<= 7;
-                    subidentifier += *pointer & 0x7F;
-                } while (*pointer++ & 0x80);
-                _value += "." + String(subidentifier);
-            } else {
-                subidentifier = *pointer++;
-                _value = String(subidentifier / 40) + "."
-                        + String(subidentifier % 40);
-            }
-        } while (pointer < end);
-        return pointer;
+        if(BER::decode(buffer, bufferEnd)){
+            uint8_t* end = buffer + _length;
+            do {
+                if (index++) {
+                    subidentifier = 0;
+                    do {
+                        subidentifier <<= 7;
+                        subidentifier += *buffer & 0x7F;
+                        CHECKBUFFER
+                    } while (*buffer++ & 0x80);
+                    _value += "." + String(subidentifier);
+                } else {
+                    CHECKBUFFER
+                    subidentifier = *buffer++;
+                    _value = String(subidentifier / 40) + "."
+                            + String(subidentifier % 40);
+                }
+            } while (buffer < end);
+            return true;
+        }
+        return false;
     }
 #endif
 
@@ -1679,10 +1801,10 @@ public:
             switch (index) {
             case 0:
                 subidentifier = atoi(token);
+                _length++;
                 break;
             case 1:
                 subidentifier = subidentifier * 40 + atoi(++token);
-                _length++;
                 break;
             default: {
                 subidentifier = atol(++token);
@@ -1774,22 +1896,30 @@ public:
      * @param stream Stream to read from.
      * @param flag Decoding flag.
      */
-    virtual void decode(Stream &stream, const uint8_t flag = Flag::None) {
-        BER::decode(stream, flag);
+    virtual bool decode(Stream &stream, const uint8_t flag = Flag::None) {
+        if(!BER::decode(stream, flag)){
+            return false;
+        }
         unsigned int length = _length;
         if (length) {
             Type type;
             _length = 0;
             do {
-                type.decode(stream);
+                if(!type.decode(stream)){
+                    return false;
+                }
                 BER *ber = create(type);
                 if (ber) {
-                    ber->decode(stream, Flag::Typed);
+                    if(!ber->decode(stream, Flag::Typed)){
+                        delete ber;
+                        return false;
+                    }
                     length -= ber->getSize();
                     add(ber);
                 }
             } while (length);
         }
+        return true;
     }
 #else
     /**
@@ -1799,20 +1929,27 @@ public:
      * the array is encoded.
      *
      * @param buffer Pointer to the buffer.
-     * @return Next position to be written in buffer.
+     * @param bufferEnd Pointer to the end of the buffer
+     * @return True when encoding is ok
      */
-    virtual uint8_t* encode(uint8_t *buffer) {
-        uint8_t *pointer = BER::encode(buffer);
+    virtual bool encode(uint8_t *&buffer, const uint8_t *bufferEnd) {
+        if(BER::encode(buffer, bufferEnd)){
 #if SNMP_VECTOR
-        for (auto ber : _bers) {
-            pointer = ber->encode(pointer);
-        }
+            for (auto ber : _bers) {
+                if(!ber->encode(buffer, bufferEnd)){
+                    return false;
+                }
+            }
 #else
-        for (uint8_t index = 0; index < _count; ++index) {
-            pointer = _bers[index]->encode(pointer);
-        }
+            for (uint8_t index = 0; index < _count; ++index) {
+                if(!_bers[index]->encode(buffer, bufferEnd)){
+                    return false;
+                }
+            }
 #endif
-        return pointer;
+            return true;
+        }
+        return false;
     }
 
     /**
@@ -1821,25 +1958,37 @@ public:
      * Type and length are decoded by the inherited BER::decode() then each BER of
      * the array is decoded.
      *
-     * @param buffer Pointer to the buffer.
-     * @return Next position to be read in buffer.
+     * @param buffer Reference to pointer to the buffer (will be incremented).
+     * @param bufferEnd Pointer to the end of the buffer
+     * @return True when decoding is ok.
      */
-    virtual uint8_t* decode(uint8_t *buffer) {
-        uint8_t *pointer = BER::decode(buffer);
-        if (_length) {
-            uint8_t *end = pointer + _length;
-            _length = 0;
-            Type type;
-            do {
-                type.decode(pointer);
-                BER *ber = create(type);
-                if (ber) {
-                    pointer = ber->decode(pointer);
-                    add(ber);
-                }
-            } while (pointer < end);
+    virtual bool decode(uint8_t *&buffer, const uint8_t *bufferEnd)  {
+        if(BER::decode(buffer, bufferEnd)){
+            if (_length) {
+                const uint8_t* end = buffer + _length;
+                _length = 0;
+                Type type;
+                do {
+                    uint8_t* typePtr = buffer;
+                    if(type.decode(buffer, bufferEnd)){
+                        //Revert to type position
+                        buffer = typePtr;
+                        BER *ber = create(type);
+                        if (ber) {
+                            if(ber->decode(buffer, bufferEnd)){
+                                add(ber);
+                            }else{
+                                return false;
+                            }
+                        }
+                    }else{
+                        return false;
+                    }
+                } while (buffer < end);
+            }
+            return true;
         }
-        return pointer;
+        return false;
     }
 #endif
 
@@ -2126,8 +2275,8 @@ public:
      * @param stream Stream to read from.
      * @param flag Decoding flag.
      */
-    virtual void decode(Stream &stream, const uint8_t flag = Flag::None) {
-        BER::decodeNumeric<T>(&_value, stream, flag);
+    virtual bool decode(Stream &stream, const uint8_t flag = Flag::None) {
+        return BER::decodeNumeric<T>(&_value, stream, flag);
     }
 #else
     /**
@@ -2137,10 +2286,11 @@ public:
      * and value.
      *
      * @param buffer Pointer to the buffer.
-     * @return Next position to be written in buffer.
+     * @param bufferEnd Pointer to the end of the buffer
+     * @return True when encoding is ok
      */
-    virtual uint8_t* encode(uint8_t *buffer) {
-        return BER::encodeNumeric<T>(_value, buffer);
+    virtual bool encode(uint8_t *&buffer, const uint8_t *bufferEnd) {
+        return BER::encodeNumeric<T>(_value, buffer, bufferEnd);
     }
 
     /**
@@ -2149,11 +2299,12 @@ public:
      * The inherited BER::decodeNumeric<T>() template function decodes type, length
      * and value.
      *
-     * @param buffer Pointer to the buffer.
-     * @return Next position to be read in buffer.
+     * @param buffer Reference to pointer to the buffer (will be incremented).
+     * @param bufferEnd Pointer to the end of the buffer
+     * @return True when decoding is ok.
      */
-    virtual uint8_t* decode(uint8_t *buffer) {
-        return BER::decodeNumeric<T>(&_value, buffer);
+    virtual bool decode(uint8_t *&buffer, const uint8_t *bufferEnd) {
+        return BER::decodeNumeric<T>(&_value, buffer, bufferEnd);
     }
 #endif
 
@@ -2358,20 +2509,27 @@ public:
      * @param stream Stream to read from.
      * @param flag Decoding flag.
      */
-    virtual void decode(Stream &stream, const uint8_t flag = Flag::None) {
-        BER::decode(stream, flag);
+    virtual bool decode(Stream &stream, const uint8_t flag = Flag::None) {
+        if(!BER::decode(stream, flag)){
+            return false;
+        }
         uint32_t length = _length;
         if (length) {
             Type type;
             do {
-                type.decode(stream);
+                if(!type.decode(stream)){
+                    return false;
+                }
                 _ber = create(type);
                 if (_ber) {
-                    _ber->decode(stream, Flag::Typed);
+                    if(!_ber->decode(stream, Flag::Typed)){
+                        return false;
+                    }
                     length -= _ber->getSize();
                 }
             } while (length);
         }
+        return true;
     }
 #else
     /**
@@ -2381,11 +2539,14 @@ public:
      * BER is encoded.
      *
      * @param buffer Pointer to the buffer.
-     * @return Next position to be written in buffer.
+     * @param bufferEnd Pointer to the end of the buffer
+     * @return True when encoding is ok
      */
-    virtual uint8_t* encode(uint8_t *buffer) {
-        uint8_t *pointer = BER::encode(buffer);
-        return _ber->encode(pointer);
+    virtual bool encode(uint8_t *&buffer, const uint8_t *bufferEnd) {
+        if(BER::encode(buffer, bufferEnd)){
+            return _ber->encode(buffer, bufferEnd);
+        }
+        return false;
     }
 
     /**
@@ -2394,23 +2555,33 @@ public:
      * Type and length are decoded by the inherited BER::decode() then the embedded
      * BER is decoded.
      *
-     * @param buffer Pointer to the buffer.
-     * @return Next position to be read in buffer.
+     * @param buffer Reference to pointer to the buffer (will be incremented).
+     * @param bufferEnd Pointer to the end of the buffer
+     * @return True when decoding is ok.
      */
-    virtual uint8_t* decode(uint8_t *buffer) {
-        uint8_t *pointer = BER::decode(buffer);
-        uint8_t *end = pointer + _length;
-        if (_length) {
-            Type type;
-            do {
-                type.decode(pointer);
-                _ber = create(type);
-                if (_ber) {
-                    pointer = _ber->decode(pointer);
-                }
-            } while (pointer < end);
+    virtual bool decode(uint8_t *&buffer, const uint8_t *bufferEnd) {
+        if(BER::decode(buffer, bufferEnd)){
+            uint8_t* end = buffer + _length;
+            if (_length) {
+                Type type;
+                do {
+                    uint8_t* bufferPtr = buffer;
+                    if(type.decode(buffer, bufferEnd)){
+                        buffer = bufferPtr;
+                        _ber = create(type);
+                        if (_ber) {
+                            if(!_ber->decode(buffer, bufferEnd)){
+                                return false;
+                            }
+                        }
+                    }else{
+                        return false;
+                    }
+                } while (buffer < end);
+            }
+            return true;
         }
-        return pointer;
+        return false;
     }
 #endif
 
@@ -2507,8 +2678,8 @@ public:
      * @param stream Stream to read from.
      * @param flag Decoding flag.
      */
-    virtual void decode(Stream &stream, const uint8_t flag = Flag::None) {
-        BER::decodeNumeric<uint32_t>(reinterpret_cast<uint32_t*>(&_value), stream, flag);
+    virtual bool decode(Stream &stream, const uint8_t flag = Flag::None) {
+        return BER::decodeNumeric<uint32_t>(reinterpret_cast<uint32_t*>(&_value), stream, flag);
     }
 #else
     /**
@@ -2518,11 +2689,12 @@ public:
      * and value.
      *
      * @param buffer Pointer to the buffer.
-     * @return Next position to be written in buffer.
+     * @param bufferEnd Pointer to the end of the buffer
+     * @return True when encoding is ok
      */
-    virtual uint8_t* encode(uint8_t *buffer) {
+    virtual bool encode(uint8_t *&buffer, const uint8_t *bufferEnd) {
         return BER::encodeNumeric<uint32_t>(
-                *(reinterpret_cast<uint32_t*>(&_value)), buffer);
+                *(reinterpret_cast<uint32_t*>(&_value)), buffer, bufferEnd);
     }
 
     /**
@@ -2531,12 +2703,13 @@ public:
      * The inherited BER::decodeNumeric<T>() template function decodes type, length
      * and value.
      *
-     * @param buffer Pointer to the buffer.
-     * @return Next position to be read in buffer.
+     * @param buffer Reference to pointer to the buffer (will be incremented).
+     * @param bufferEnd Pointer to the end of the buffer
+     * @return True when decoding is ok.
      */
-    virtual uint8_t* decode(uint8_t *buffer) {
+    virtual bool decode(uint8_t *&buffer, const uint8_t *bufferEnd) {
         return BER::decodeNumeric<uint32_t>(
-                reinterpret_cast<uint32_t*>(&_value), buffer);
+                reinterpret_cast<uint32_t*>(&_value), buffer, bufferEnd);
     }
 #endif
 
@@ -2642,3 +2815,5 @@ public:
 }  // namespace SNMP
 
 #endif /* BER_H_ */
+
+

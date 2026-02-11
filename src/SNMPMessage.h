@@ -115,16 +115,16 @@ public:
      */
     class OID {
     public:
-        static constexpr char *COLDSTART = "1.3.6.1.6.3.1.1.5.1";
-        static constexpr char *WARMSTART = "1.3.6.1.6.3.1.1.5.2";
-        static constexpr char *LINKDOWN = "1.3.6.1.6.3.1.1.5.3";
-        static constexpr char *LINKUP = "1.3.6.1.6.3.1.1.5.4";
-        static constexpr char *AUTHENTICATIONFAILURE = "1.3.6.1.6.3.1.1.5.5";
+        static constexpr const char *COLDSTART = "1.3.6.1.6.3.1.1.5.1";
+        static constexpr const char *WARMSTART = "1.3.6.1.6.3.1.1.5.2";
+        static constexpr const char *LINKDOWN = "1.3.6.1.6.3.1.1.5.3";
+        static constexpr const char *LINKUP = "1.3.6.1.6.3.1.1.5.4";
+        static constexpr const char *AUTHENTICATIONFAILURE = "1.3.6.1.6.3.1.1.5.5";
 
     private:
-        static constexpr char *SYSUPTIME = "1.3.6.1.2.1.1.3.0";
-        static constexpr char *SNMPTRAPOID = "1.3.6.1.6.3.1.1.4.1.0";
-        static constexpr char *SNMPTRAPENTERPRISE = "1.3.6.1.6.3.1.1.4.3.0";
+        static constexpr const char *SYSUPTIME = "1.3.6.1.2.1.1.3.0";
+        static constexpr const char *SNMPTRAPOID = "1.3.6.1.6.3.1.1.4.1.0";
+        static constexpr const char *SNMPTRAPENTERPRISE = "1.3.6.1.6.3.1.1.4.3.0";
 
         friend class Message;
     };
@@ -370,7 +370,7 @@ public:
         return _varBindList;
     }
 
-private:
+
     /**
      * @brief Builds the message.
      *
@@ -465,9 +465,12 @@ private:
      *
      * @param stream Stream to read from.
      */
-    void parse(Stream &stream) {
-        decode(stream);
-        parse();
+    bool parse(Stream &stream) {
+        if(decode(stream)){
+            parse();
+            return true;
+        }
+        return false;
     }
 #else
     /**
@@ -480,8 +483,9 @@ private:
      *
      * @param buffer Pointer to the buffer.
      */
-    void build(uint8_t *buffer) {
-        encode(buffer);
+    bool build(uint8_t*& buffer, const uint8_t* bufferEnd) {
+        build();
+        return encode(buffer, bufferEnd);
     }
 
     /**
@@ -492,12 +496,16 @@ private:
      *
      * @param buffer Pointer to the buffer.
      */
-    void parse(uint8_t *buffer) {
-        decode(buffer);
-        parse();
+    bool parse(uint8_t*& buffer, const uint8_t* bufferEnd) {
+        if(decode(buffer, bufferEnd)){
+            parse();
+            return true;
+        }
+        return false;
     }
 #endif
 
+private:
     /**
      * @brief Maps error status.
      *

@@ -65,17 +65,22 @@ public:
      * @brief Network read operation.
      *
      * Read incoming packet, parses as an %SNMP message an calls user message handler.
-     *
+     * @param destroyMessage Set to true to automatically delete the message after onMessage callback
      * @warning This function must be called frequently from the sketch %loop()
      * function.
      */
-    void loop() {
+    void loop(bool destroyMessage = true) {
 #if SNMP_STREAM
         if (_udp->parsePacket()) {
             Message *message = new Message();
-            message->parse(*_udp);
-            _onMessage(message, _udp->remoteIP(), _udp->remotePort());
-            delete message;
+            if(message->parse(*_udp)){
+                _onMessage(message, _udp->remoteIP(), _udp->remotePort());
+                if(destroyMessage){
+                    delete message;
+                }
+            }else{
+                delete message;
+            }
         }
 #else
         if (_udp->parsePacket()) {
@@ -87,7 +92,9 @@ public:
                 message->parse(buffer);
                 free(buffer);
                 _onMessage(message, _udp->remoteIP(), _udp->remotePort());
-                delete message;
+                if(destroyMessage){
+                    delete message;
+                }
             }
         }
 #endif
