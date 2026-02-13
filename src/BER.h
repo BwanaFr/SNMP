@@ -45,7 +45,7 @@
 #if SNMP_STREAM
 #define CHECKSTREAM if(stream.available() == 0) return false;
 #else
-#define CHECKBUFFER if(buffer >= bufferEnd) return false;
+#define CHECKBUFFER if(buffer > bufferEnd) return false;
 #endif
 
 /**
